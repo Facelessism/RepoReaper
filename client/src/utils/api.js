@@ -1,5 +1,5 @@
 import axios from "axios";
-import{ useAppStore } from "../store/app.store"; 
+import { useAppStore } from "../store/app.store.js"; 
 
 const api = axios.create({
   baseURL:  (import.meta.env.VITE_API_URL || "").replace(/\/$/, ""), 
@@ -25,14 +25,17 @@ api.interceptors.response.use(
     // Context check: Did our backend flag a 429 rate limit cooldown?
     if (error.response && error.response.status === 429) {
       // Pull out the cooldown seconds sent by the server, or fallback to 60s
-      const duation = error.response.data?.cooldownDuration || 60;
+  
+      const cooldownSeconds = Number(error.response.data?.cooldownDuration) || 60;
        
-      // Update our global Zustand store state instantly
-      useAppStore.getState().intiateSystemCooldown(duation);
+      // Update our global Zustand store state instantly.
+
+      useAppStore.getState().initateSystemCooldown(cooldownSeconds);
     }
      // Pass the error down normally so our components can gracefully reject 
     return Promise.reject(error);
   }
 );
-
+ 
+  
 export default api;

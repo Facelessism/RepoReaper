@@ -29,10 +29,11 @@ export const bulkRepoAction = async ({ repos, token, action, successStatus }) =>
       await sleep(200);
 
     } catch (error) {
+      let finalError = error;
       // 2. Intercept context : Did we trigger a Github API Rate limit (HTTP 429)?
-      if (error.response && error.response.status === 429) {
+      if (finalError.response && finalError.response.status === 429) {
         // Read how many seconds Github wants us to wait before retrying
-        const retryAfterHeader = error.response.headers['retry-after'];
+        const retryAfterHeader = finalError.response.headers['retry-after'];
         const SecondsToWait = parseInt(retryAfterHeader, 10) || 60; // fallback to 60 seconds 
          
         console.warn(`[Rate Limit Guard] Hit 429 on ${fullName}. Cooling down for ${SecondsToWait}s..`);
@@ -46,8 +47,8 @@ export const bulkRepoAction = async ({ repos, token, action, successStatus }) =>
           results.push({ repo: fullName, status: successStatus });
           continue; // Successfully  recovered! Move to the next repository in the loop.
         } catch (retryError) {
-          // If it fails a second time, catch it amd log it below.
-          error = retryError; 
+          // If it fails a second time, catch it and log it below.
+          finalError = retryError; 
         }  
       }
       // Standard failure fallback if it was not a rate limit error or if retry failed
@@ -55,7 +56,7 @@ export const bulkRepoAction = async ({ repos, token, action, successStatus }) =>
       results.push({
         repo: fullName,
         status: 'failed',
-        message: error.response?.data?.message || error.message,
+        message: finalError.response?.data?.message || finalError.message,
       });
     }
   }
