@@ -1,30 +1,27 @@
-import axios from 'axios';
+import {
+  getRepos,
+  getStarredRepos,
+  getAuthenticatedUser,
+  deleteRepo as deleteGithubRepo,
+  archiveRepo as archiveGithubRepo,
+  makePrivate as makeGithubRepoPrivate,
+  unstarRepo,
+} from '../services/github.service.js';
+
+
 import { bulkRepoAction } from '../services/bulkRepoAction.service.js';
-import logger from '../utils/logger.js';
+
 
 export const getList = async (req, res) => {
   try {
     const token = req.token;
-
     let allRepos = [];
     let page = 1;
     let hasMore = true;
 
     while (hasMore) {
-      const { data: repos } = await axios.get('https://api.github.com/user/repos', {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github+json',
-        },
-        params: {
-          per_page: 100,
-          page: page,
-          affiliation: 'owner',
-        },
-      });
-
+      const repos = await getRepos(token, page);
       allRepos = allRepos.concat(repos);
-
       if (repos.length < 100) {
         hasMore = false;
       } else {
@@ -45,17 +42,18 @@ export const getList = async (req, res) => {
       language: repo.language,
       stargazers_count: repo.stargazers_count,
     }));
+
     const username = allRepos[0]?.owner?.login;
     const avatar = allRepos[0]?.owner?.avatar_url;
 
-    res.json({repos:simplifiedRepos , user:username , avatar:avatar});
+    res.json({ repos: simplifiedRepos, user: username, avatar: avatar });
   } catch (error) {
     console.error('Error fetching repos:', error.message);
     res.status(500).json({ error: 'Failed to fetch repositories' });
   }
-}
+};
 
-export const deleteRepo =  async (req, res) => {
+export const deleteRepo = async (req, res) => {
   const token = req.token;
   const reposToDelete = req.body.repos;
 
@@ -67,25 +65,14 @@ export const deleteRepo =  async (req, res) => {
     repos: reposToDelete,
     token,
     successStatus: 'deleted',
-    action: (fullName, token) => {
-      logger.debug(`Attempting to delete: ${fullName}`);
-      return axios.delete(`https://api.github.com/repos/${fullName}`, {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github+json',
-        },
-      }).then(response => {
-        logger.debug(`Deleted: ${fullName}`);
-        return response;
-      }).catch(error => {
-        logger.error(`Failed to delete ${fullName}:`, error.response?.data || error.message);
-        throw error;
-      });
+    action: async (fullName, token) => {
+
+      await deleteGithubRepo(fullName, token);
     },
   });
 
   res.json({ results });
-}
+};
 
 export const archiveRepo = async (req, res) => {
   const token = req.token;
@@ -99,29 +86,13 @@ export const archiveRepo = async (req, res) => {
     repos: reposToArchive,
     token,
     successStatus: 'archived',
-    action: (fullName, token) => {
-      logger.debug(`Attempting to archive: ${fullName}`);
-      return axios.patch(
-        `https://api.github.com/repos/${fullName}`,
-        { archived: true },
-        {
-          headers: {
-            Authorization: `token ${token}`,
-            Accept: 'application/vnd.github+json',
-          },
-        }
-      ).then(response => {
-        logger.debug(`Archived: ${fullName}`);
-        return response;
-      }).catch(error => {
-        logger.error(`Failed to archive ${fullName}:`, error.response?.data || error.message);
-        throw error;
-      });
+    action: async (fullName, token) => {
+      await archiveGithubRepo(fullName, token);
     },
   });
 
   res.json({ results });
-}
+};
 
 export const makePrivate = async (req, res) => {
   const token = req.token;
@@ -135,52 +106,24 @@ export const makePrivate = async (req, res) => {
     repos: reposToUpdate,
     token,
     successStatus: 'private',
-    action: (fullName, token) => {
-      logger.debug(`Attempting to make private: ${fullName}`);
-      return axios.patch(
-        `https://api.github.com/repos/${fullName}`,
-        { private: true },
-        {
-          headers: {
-            Authorization: `token ${token}`,
-            Accept: 'application/vnd.github+json',
-          },
-        }
-      ).then(response => {
-        logger.debug(`Made private: ${fullName}`);
-        return response;
-      }).catch(error => {
-        logger.error(`Failed to make private ${fullName}:`, error.response?.data || error.message);
-        throw error;
-      });
+    action: async (fullName, token) => {
+      await makeGithubRepoPrivate(fullName, token);
     },
   });
 
   res.json({ results });
-}
+};
 
 export const getStarred = async (req, res) => {
   try {
     const token = req.token;
-
     let allRepos = [];
     let page = 1;
     let hasMore = true;
 
     while (hasMore) {
-      const { data: repos } = await axios.get('https://api.github.com/user/starred', {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github+json',
-        },
-        params: {
-          per_page: 100,
-          page: page,
-        },
-      });
-
+      const repos = await getStarredRepos(token, page);
       allRepos = allRepos.concat(repos);
-
       if (repos.length < 100) {
         hasMore = false;
       } else {
@@ -201,20 +144,15 @@ export const getStarred = async (req, res) => {
       language: repo.language,
       stargazers_count: repo.stargazers_count,
     }));
-    
-    const { data: userData } = await axios.get('https://api.github.com/user', {
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github+json',
-      }
-    });
 
-    res.json({repos:simplifiedRepos , user:userData.login , avatar:userData.avatar_url});
+    const userData = await getAuthenticatedUser(token);
+
+    res.json({ repos: simplifiedRepos, user: userData.login, avatar: userData.avatar_url });
   } catch (error) {
     console.error('Error fetching starred repos:', error.message);
     res.status(500).json({ error: 'Failed to fetch starred repositories' });
   }
-}
+};
 
 export const unstarRepos = async (req, res) => {
   const token = req.token;
@@ -228,22 +166,10 @@ export const unstarRepos = async (req, res) => {
     repos: reposToUnstar,
     token,
     successStatus: 'unstarred',
-    action: (fullName, token) => {
-      logger.debug(`Attempting to unstar: ${fullName}`);
-      return axios.delete(`https://api.github.com/user/starred/${fullName}`, {
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github+json',
-        },
-      }).then(response => {
-        logger.debug(`Unstarred: ${fullName}`);
-        return response;
-      }).catch(error => {
-        logger.error(`Failed to unstar ${fullName}:`, error.response?.data || error.message);
-        throw error;
-      });
+    action: async (fullName, token) => {
+      await unstarRepo(fullName, token);
     },
   });
 
   res.json({ results });
-}
+};
