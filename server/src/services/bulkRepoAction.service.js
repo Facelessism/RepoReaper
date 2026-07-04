@@ -23,7 +23,7 @@ export const bulkRepoAction = async ({ repos, token, action, successStatus }) =>
       results.push({
         repo: fullName,
         status: 'failed',
-        message: error.response?.data?.message || error.message,
+        message: error.message,
       });
     }
   }
