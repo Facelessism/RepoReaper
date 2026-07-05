@@ -10,6 +10,7 @@ const githubApi = axios.create({
 
 const MAX_RETRIES = 3;
 const MAX_BACKOFF = 8000;
+const MAX_RATE_LIMIT_WAIT = 30000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -60,10 +61,16 @@ const handleRateLimit = async (error) => {
     const resetTime = reset * 1000;
     const waitTime = Math.max(resetTime - Date.now(), 0);
 
+    if (waitTime > MAX_RATE_LIMIT_WAIT) {
+      const rateLimitError = new Error(
+        "GitHub rate limit exceeded. Please try again later"
+      );
+      rateLimitError.status = 429;
+      throw rateLimitError;
+    }
+
     logger.warn(
-      `GitHub rate limit exceeded. Waiting ${Math.ceil(
-        waitTime / 1000
-      )} seconds before retrying.`
+      `GitHub rate limit exceeded. Waiting ${Math.ceil( waitTime / 1000 )} seconds before retrying.`
     );
 
     await sleep(waitTime);
