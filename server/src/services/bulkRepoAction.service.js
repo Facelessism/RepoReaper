@@ -1,65 +1,57 @@
-/** 
- *  A Clean utility function to pause loop execution for a given number of miliseconds
+import { runWithConcurrency } from "../utils/githubScheduler.js";
+
+const DEFAULT_CONCURRENCY = 3;
+
+/**
+ * Executes a bulk action on multiple GitHub repositories.
+ *
+ * @param {Object} params - Parameters object.
+ * @param {Array<string>} params.repos - Array of repository full names (owner/repo).
+ * @param {string} params.token - GitHub authentication token.
+ * @param {Function} params.action - Async function that performs the action on a single repository.
+ * @param {string} params.successStatus - Status value to use on success.
+ * @param {number} [params.concurrency=DEFAULT_CONCURRENCY] - Maximum number of concurrent operations.
+ * @returns {Promise<Array>} Array of results in the format:
+ * [{ repo, status, message? }]
  */
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-/** 
- * Executes a bulk action on multiple GitHub repositories
- * @param {Object} params - Parameters object
- * @param {Array<string>} params.repos - Array of repository full names (owner/repo)
- * @param {string} params.token - GitHub authentication token
- * @param {Function} params.action - Async function that performs the action on a single repo
- *   Takes (fullName, token) and returns axios response
- * @param {string} params.successStatus - Status value to use on success
- * @returns {Promise<Array>} Array of results in format: { repo, status, message? }
- */
-export const bulkRepoAction = async ({ repos, token, action, successStatus }) => {
+
+export const bulkRepoAction = async ({
+  repos,
+  token,
+  action,
+  successStatus,
+  concurrency = DEFAULT_CONCURRENCY,
+}) => {
   if (!Array.isArray(repos)) {
-    throw new Error('repos must be an array');
+    throw new Error("repos must be an array");
   }
 
-  const results = [];
+  if (typeof action !== "function") {
+    throw new Error("action must be a function");
+  }
 
-  for (const fullName of repos) {
-    try {
-      // 1. Execute the action for the current repository
-      await action(fullName, token);
-      results.push({ repo: fullName, status: successStatus });
-      // Humane practice : Add a tiny 200ms operational breathing room between bulk loops
-      // This is to avoid hitting secondary rate limits in the first place.
-      await sleep(200);
+  if (typeof successStatus !== "string" || successStatus.trim() === "") {
+    throw new Error("successStatus must be a non-empty string");
+  }
 
-    } catch (error) {
-      let finalError = error;
-      // 2. Intercept context : Did we trigger a Github API Rate limit (HTTP 429)?
-      if (finalError.response && finalError.response.status === 429) {
-        // Read how many seconds Github wants us to wait before retrying
-        const retryAfterHeader = finalError.response.headers['retry-after'];
-        const SecondsToWait = parseInt(retryAfterHeader, 10) || 60; // fallback to 60 seconds 
-         
-        console.warn(`[Rate Limit Guard] Hit 429 on ${fullName}. Cooling down for ${SecondsToWait}s..`);
+  return runWithConcurrency(
+    repos,
+    async (fullName) => {
+      try {
+        await action(fullName, token);
 
-        // 3. Wait out the required penalty timer right here inside the loop sequence!
-          await sleep(SecondsToWait * 1000);
-
-        // 4. Automatic Retry : Retry the exact repository action that just failed
-        try {
-          await action(fullName, token);
-          results.push({ repo: fullName, status: successStatus });
-          continue; // Successfully  recovered! Move to the next repository in the loop.
-        } catch (retryError) {
-          // If it fails a second time, catch it and log it below.
-          finalError = retryError; 
-        }  
+        return {
+          repo: fullName,
+          status: successStatus,
+        };
+      } catch (error) {
+        return {
+          repo: fullName,
+          status: "failed",
+          message: error.message || "Unknown error",
+        };
       }
-      // Standard failure fallback if it was not a rate limit error or if retry failed
-      
-      results.push({
-        repo: fullName,
-        status: 'failed',
-        message: finalError.response?.data?.message || finalError.message,
-      });
-    }
-  }
-
-  return results;
+    },
+    concurrency
+  );
 };
